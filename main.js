@@ -23,13 +23,42 @@ app.whenReady().then(() => {
     win.loadFile('index.html');
     win.setFullScreen(true);
 
-    // Tell each window which monitor it is
+    // Auto-inject IPC sync code into any HTML page
     win.webContents.on('did-finish-load', () => {
-      win.webContents.send('init', {
-        monitorIndex: index,
-        monitorWidth: width,
-        monitorHeight: height
-      });
+      win.webContents.executeJavaScript(`
+        (function() {
+          const { ipcRenderer } = require('electron');
+          const monitorIndex = ${index};
+          const monitorWidth = ${width};
+          let isSyncing = false;
+
+          if (monitorIndex === 1) {
+            tx -= monitorWidth;
+            applyStage();
+          }
+
+          ipcRenderer.on('sync', (event, data) => {
+            isSyncing = true;
+            tx = data.tx - (monitorIndex * monitorWidth);
+            ty = data.ty;
+            tz = data.tz;
+            applyStage();
+            isSyncing = false;
+          });
+
+          const _applyStage = applyStage;
+          applyStage = function() {
+            _applyStage();
+            if (!isSyncing) {
+              ipcRenderer.send('sync', {
+                tx: tx + (monitorIndex * monitorWidth),
+                ty: ty,
+                tz: tz
+              });
+            }
+          };
+        })();
+      `);
     });
 
     windows.push(win);
