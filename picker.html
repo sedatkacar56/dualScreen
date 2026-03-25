@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Dual Screen — Choose File</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0e0e12;
+      color: #e0e0ee;
+      font-family: 'Segoe UI', sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      gap: 20px;
+    }
+    h1 { font-size: 22px; font-weight: 600; }
+    p { font-size: 13px; color: #888; max-width: 400px; text-align: center; line-height: 1.5; }
+    .btn {
+      padding: 12px 32px;
+      border: none;
+      border-radius: 10px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.1s;
+    }
+    .btn:hover { transform: scale(1.03); }
+    .btn-primary {
+      background: #7c6af5;
+      color: white;
+    }
+    .btn-secondary {
+      background: #1e1e2a;
+      color: #aaa;
+      border: 1px solid #333;
+    }
+    .buttons { display: flex; gap: 12px; margin-top: 10px; }
+    #fileName {
+      font-size: 13px;
+      color: #4ecdc4;
+      margin-top: 5px;
+      min-height: 18px;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Dual Screen Viewer</h1>
+  <p>Choose an HTML file to display across your monitors, or use the built-in demo.</p>
+  <p style="font-size:11px; color:#666;">HTML files with pan/zoom (tx, ty, tz + applyStage) will auto-sync across screens.</p>
+
+  <div class="buttons">
+    <button class="btn btn-primary" id="browseBtn">Browse HTML File</button>
+    <button class="btn btn-secondary" id="demoBtn">Use Demo</button>
+  </div>
+  <div id="fileName"></div>
+
+<script>
+  const { ipcRenderer } = require('electron');
+
+  document.getElementById('browseBtn').addEventListener('click', () => {
+    ipcRenderer.send('open-file-dialog');
+  });
+
+  ipcRenderer.on('file-chosen', (event, filePath) => {
+    document.getElementById('fileName').textContent = filePath;
+  });
+
+  document.getElementById('demoBtn').addEventListener('click', () => {
+    ipcRenderer.send('use-default');
+  });
+</script>
+
+</body>
+</html>

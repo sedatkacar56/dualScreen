@@ -1,38 +1,81 @@
-# Dual Screen HTML — Synchronized Canvas Across Two Monitors
+# Dual Screen — View Any HTML Across Two Monitors
 
-An Electron app that opens a fullscreen window on each connected monitor and keeps them in sync. Drag and scroll on one screen and the canvas moves on the other, creating a seamless multi-monitor workspace.
+An Electron app that displays any HTML file across all your connected monitors with synchronized pan and zoom. Just pick a file and it goes fullscreen on every screen.
 
 ![Electron](https://img.shields.io/badge/Electron-41-47848F?logo=electron&logoColor=white)
 
-## How It Works
+## Features
 
-1. **`main.js`** detects every connected display, opens a fullscreen frameless window on each one, and **automatically injects** the IPC sync code into any HTML page after it loads — via `executeJavaScript`.
-2. **`index.html`** (or any HTML you create) just needs global `tx`, `ty`, `tz` variables and an `applyStage()` function. No IPC code needed in the HTML — `main.js` handles it all.
-3. When the user pans or zooms, the injected sync code broadcasts the transform state to all other windows so every screen stays in sync, offset by its monitor position.
+- **File picker** — launch the app and browse for any HTML file
+- **Auto-sync** — if your HTML has pan/zoom (`tx`, `ty`, `tz` + `applyStage()`), both screens sync automatically
+- **Display mode** — HTML without pan/zoom just shows fullscreen on all monitors
+- **Drag & drop** — drag an HTML file onto the `.exe` to open it directly
+- **page.html shortcut** — place a file called `page.html` next to the app and it loads automatically
+- **One-click start** — double-click `start.bat` (no terminal needed)
+
+## Quick Start (Download & Run)
+
+### Option A: Download the `.exe` (easiest)
+
+1. Go to [Releases](https://github.com/sedatkacar56/dualScreen/releases)
+2. Download `DualScreen.exe`
+3. Double-click it — a file picker opens, choose your HTML file
+4. Done — fullscreen on every monitor
+
+### Option B: Clone and run
+
+```bash
+git clone https://github.com/sedatkacar56/dualScreen.git
+cd dualScreen
+npm install
+npm start
+```
+
+Or just double-click `start.bat` on Windows.
+
+## How to Load Your Own HTML
+
+Three ways:
+
+1. **File picker** — run the app, click "Browse HTML File", select your file
+2. **page.html** — place your HTML file next to the app and rename it to `page.html`. The app loads it automatically on launch
+3. **Drag & drop** — drag your `.html` file onto `DualScreen.exe`
+
+## Making Your HTML Sync Across Monitors
+
+If you want pan/zoom to stay synced between screens, your HTML needs these globals:
+
+```js
+let tx = 0, ty = 0, tz = 1;
+
+function applyStage() {
+  // apply your transform, e.g.:
+  stage.style.transform = `translate(${tx}px,${ty}px) scale(${tz})`;
+}
+```
+
+The app detects these automatically and injects the sync code at runtime. Your HTML file is never modified.
+
+If your HTML doesn't have these variables, it simply displays fullscreen on each monitor — no sync, no errors.
 
 ## Build It From Scratch
 
 ### Prerequisites
 
-- **Node.js** (v18 or later) — [https://nodejs.org](https://nodejs.org)
-- **Two monitors** connected to your machine (works with one monitor too, but the sync effect won't be visible)
+- **Node.js** (v18+) — [https://nodejs.org](https://nodejs.org)
+- **Two monitors** connected to your machine
 
 ### Steps
 
-#### 1. Create the project folder
+#### 1. Create the project
 
 ```bash
 mkdir dual-screen-html
 cd dual-screen-html
-```
-
-#### 2. Initialize the project
-
-```bash
 npm init -y
 ```
 
-This creates `package.json`. Open it and make sure it looks like this:
+Edit `package.json`:
 
 ```json
 {
@@ -40,129 +83,61 @@ This creates `package.json`. Open it and make sure it looks like this:
   "version": "1.0.0",
   "main": "main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "build": "electron-builder --win"
+  },
+  "dependencies": {
+    "electron": "^41.0.4"
+  },
+  "devDependencies": {
+    "electron-builder": "^25.1.8"
   }
 }
 ```
 
-The key parts: `"main"` points to `main.js` (Electron's entry point) and the `"start"` script runs Electron.
-
-#### 3. Install Electron
+#### 2. Install dependencies
 
 ```bash
-npm install electron
+npm install
 ```
 
-#### 4. Create the main process — `main.js`
+#### 3. Create `main.js`
 
-This file runs in Node.js. It detects monitors, opens a window on each, and relays pan/zoom messages between them.
+This is the brain of the app. It:
+- Detects all connected monitors
+- Opens a fullscreen window on each one
+- Shows a file picker if no default file is found
+- Auto-injects pan/zoom sync into HTML pages that support it
 
-```js
-const { app, BrowserWindow, screen, ipcMain } = require('electron');
+See the full `main.js` in this repo.
 
-let windows = [];
+#### 4. Create `picker.html`
 
-app.whenReady().then(() => {
-  const displays = screen.getAllDisplays();
+A simple UI with two buttons — "Browse HTML File" and "Use Demo". See `picker.html` in this repo.
 
-  displays.forEach((display, index) => {
-    const { x, y, width, height } = display.bounds;
+#### 5. Create your `index.html`
 
-    const win = new BrowserWindow({
-      x, y, width, height,
-      frame: false,
-      webPreferences: {
-        nodeIntegration: true,
-        contextIsolation: false
-      }
-    });
+The demo page. A dark canvas with colored blocks spanning 8000px wide. Add your own blocks, change colors, or build something completely different.
 
-    win.loadFile('index.html');
-    win.setFullScreen(true);
+The only requirement for sync: global `tx`, `ty`, `tz` variables and an `applyStage()` function.
 
-    // Auto-inject IPC sync into any HTML — no need to add it manually
-    win.webContents.on('did-finish-load', () => {
-      win.webContents.executeJavaScript(`
-        (function() {
-          const { ipcRenderer } = require('electron');
-          const monitorIndex = ${index};
-          const monitorWidth = ${width};
-          let isSyncing = false;
-
-          if (monitorIndex === 1) { tx -= monitorWidth; applyStage(); }
-
-          ipcRenderer.on('sync', (event, data) => {
-            isSyncing = true;
-            tx = data.tx - (monitorIndex * monitorWidth);
-            ty = data.ty; tz = data.tz;
-            applyStage();
-            isSyncing = false;
-          });
-
-          const _applyStage = applyStage;
-          applyStage = function() {
-            _applyStage();
-            if (!isSyncing) {
-              ipcRenderer.send('sync', {
-                tx: tx + (monitorIndex * monitorWidth), ty, tz
-              });
-            }
-          };
-        })();
-      `);
-    });
-
-    windows.push(win);
-  });
-
-  ipcMain.on('sync', (event, data) => {
-    windows.forEach(win => {
-      if (win.webContents !== event.sender) win.webContents.send('sync', data);
-    });
-  });
-});
-```
-
-**What's happening:**
-- `screen.getAllDisplays()` returns every connected monitor with its position and size.
-- Each `BrowserWindow` is placed at the exact `x, y` of its display and set to fullscreen.
-- `frame: false` removes the title bar for a clean look.
-- `executeJavaScript` auto-injects the sync logic after the page loads — your HTML stays untouched.
-- `ipcMain` relays pan/zoom state from one window to all others.
-
-#### 5. Create the renderer — `index.html`
-
-This is the page loaded in each window. It draws a large world of blocks and handles mouse pan + scroll zoom.
-
-Your HTML only needs three things — **no IPC code required**, `main.js` injects it automatically:
-
-```js
-let tx = 0, ty = 0, tz = 1;  // pan/zoom state (global)
-
-function applyStage() {
-  stage.style.transform = `translate(${tx}px,${ty}px) scale(${tz})`;
-}
-```
-
-That's it. Add your own layout, blocks, or design freely. See `index.html` in this repo for a full working example.
-
-#### 6. Run it
+#### 6. Run
 
 ```bash
 npm start
 ```
 
-A fullscreen window opens on each connected monitor. Click and drag to pan — both screens move together.
+### Build the `.exe`
+
+```bash
+npm run build
+```
+
+The portable `.exe` appears in the `dist/` folder.
 
 ### How to exit
 
-Press `Alt+F4` (Windows/Linux) or `Cmd+Q` (macOS) to close.
-
-## Customization Ideas
-
-- **Add your own blocks** — edit the `<div class="block">` elements in `index.html`. Change positions, sizes, colors, and text.
-- **Connect blocks with lines** — use an SVG or canvas overlay to draw edges between nodes.
-- **Dynamic content** — load block data from a JSON file instead of hardcoding HTML.
+Press `Alt+F4` (Windows/Linux) or `Cmd+Q` (macOS).
 
 ## License
 

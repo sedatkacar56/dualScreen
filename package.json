@@ -1,11 +1,30 @@
 {
   "name": "dual-screen-app",
   "version": "1.0.0",
+  "description": "Display and sync any HTML file across multiple monitors",
+  "author": "Sedat Kacar",
   "main": "main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "build": "electron-builder --win"
   },
-  "dependencies": {
-    "electron": "^41.0.4"
+  "build": {
+    "appId": "com.dualscreen.app",
+    "productName": "DualScreen",
+    "win": {
+      "target": "portable",
+      "signAndEditExecutable": false,
+      "signingHashAlgorithms": null
+    },
+    "files": [
+      "main.js",
+      "index.html",
+      "picker.html"
+    ],
+    "extraResources": []
+  },
+  "devDependencies": {
+    "electron": "^41.0.4",
+    "electron-builder": "^25.1.8"
   }
 }

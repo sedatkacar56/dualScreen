@@ -1,18 +1,21 @@
-const { app, BrowserWindow, screen, ipcMain } = require('electron');
+const { app, BrowserWindow, screen, ipcMain, dialog } = require('electron');
+const path = require('path');
 
 let windows = [];
 
-app.whenReady().then(() => {
+function launchOnAllDisplays(filePath) {
+  // Close any existing windows
+  windows.forEach(w => w.close());
+  windows = [];
+
   const displays = screen.getAllDisplays();
+  const isHTML = filePath.endsWith('.html') || filePath.endsWith('.htm');
 
   displays.forEach((display, index) => {
     const { x, y, width, height } = display.bounds;
 
     const win = new BrowserWindow({
-      x: x,
-      y: y,
-      width: width,
-      height: height,
+      x, y, width, height,
       frame: false,
       webPreferences: {
         nodeIntegration: true,
@@ -20,51 +23,111 @@ app.whenReady().then(() => {
       }
     });
 
-    win.loadFile('index.html');
+    win.loadFile(filePath);
     win.setFullScreen(true);
 
-    // Auto-inject IPC sync code into any HTML page
     win.webContents.on('did-finish-load', () => {
-      win.webContents.executeJavaScript(`
-        (function() {
-          const { ipcRenderer } = require('electron');
-          const monitorIndex = ${index};
-          const monitorWidth = ${width};
-          let isSyncing = false;
-
-          if (monitorIndex === 1) {
-            tx -= monitorWidth;
-            applyStage();
-          }
-
-          ipcRenderer.on('sync', (event, data) => {
-            isSyncing = true;
-            tx = data.tx - (monitorIndex * monitorWidth);
-            ty = data.ty;
-            tz = data.tz;
-            applyStage();
-            isSyncing = false;
-          });
-
-          const _applyStage = applyStage;
-          applyStage = function() {
-            _applyStage();
-            if (!isSyncing) {
-              ipcRenderer.send('sync', {
-                tx: tx + (monitorIndex * monitorWidth),
-                ty: ty,
-                tz: tz
-              });
+      if (isHTML) {
+        // Try to inject sync — only works if the page has tx, ty, tz, applyStage
+        win.webContents.executeJavaScript(`
+          (function() {
+            if (typeof tx === 'undefined' || typeof applyStage !== 'function') {
+              console.log('No sync variables found — display-only mode');
+              return;
             }
-          };
-        })();
-      `);
+            const { ipcRenderer } = require('electron');
+            const monitorIndex = ${index};
+            const monitorWidth = ${width};
+            let isSyncing = false;
+
+            if (monitorIndex === 1) {
+              tx -= monitorWidth;
+              applyStage();
+            }
+
+            ipcRenderer.on('sync', (event, data) => {
+              isSyncing = true;
+              tx = data.tx - (monitorIndex * monitorWidth);
+              ty = data.ty;
+              tz = data.tz;
+              applyStage();
+              isSyncing = false;
+            });
+
+            const _applyStage = applyStage;
+            applyStage = function() {
+              _applyStage();
+              if (!isSyncing) {
+                ipcRenderer.send('sync', {
+                  tx: tx + (monitorIndex * monitorWidth),
+                  ty: ty,
+                  tz: tz
+                });
+              }
+            };
+          })();
+        `);
+      }
     });
 
     windows.push(win);
   });
+}
 
-  // Relay drag/scroll from one window to the other
+app.whenReady().then(() => {
+  // Check if a file was passed as argument (drag & drop onto .exe)
+  const fileArg = process.argv.find((arg, i) => i > 0 && !arg.startsWith('-'));
+  if (fileArg && (fileArg.endsWith('.html') || fileArg.endsWith('.htm'))) {
+    launchOnAllDisplays(path.resolve(fileArg));
+    return;
+  }
+
+  // Check if page.html exists next to the app
+  const defaultPage = path.join(__dirname, 'page.html');
+  const fs = require('fs');
+  if (fs.existsSync(defaultPage)) {
+    launchOnAllDisplays(defaultPage);
+    return;
+  }
+
+  // Show file picker
+  const pickerWin = new BrowserWindow({
+    width: 520,
+    height: 400,
+    frame: true,
+    resizable: false,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false
+    }
+  });
+
+  pickerWin.loadFile('picker.html');
+
+  ipcMain.on('open-file-dialog', async (event) => {
+    const result = await dialog.showOpenDialog(pickerWin, {
+      title: 'Choose an HTML file',
+      filters: [
+        { name: 'HTML Files', extensions: ['html', 'htm'] },
+        { name: 'All Files', extensions: ['*'] }
+      ],
+      properties: ['openFile']
+    });
+    if (!result.canceled && result.filePaths.length > 0) {
+      event.sender.send('file-chosen', result.filePaths[0]);
+      setTimeout(() => {
+        pickerWin.close();
+        launchOnAllDisplays(result.filePaths[0]);
+      }, 500);
+    }
+  });
+
+  ipcMain.once('use-default', () => {
+    pickerWin.close();
+    launchOnAllDisplays(path.join(__dirname, 'index.html'));
+  });
+
+  // Relay sync messages between display windows
   ipcMain.on('sync', (event, data) => {
     windows.forEach(win => {
       if (win.webContents !== event.sender) {
