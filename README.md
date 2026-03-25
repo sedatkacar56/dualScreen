@@ -6,9 +6,9 @@ An Electron app that opens a fullscreen window on each connected monitor and kee
 
 ## How It Works
 
-1. **`main.js`** (Electron main process) detects every connected display using `screen.getAllDisplays()`, opens a frameless fullscreen `BrowserWindow` on each one, and tells each window its monitor index and dimensions via IPC.
-2. **`index.html`** renders a large pannable/zoomable canvas with colored blocks. When the user drags or scrolls, the renderer sends its transform state (`tx`, `ty`, `tz`) to the main process.
-3. The main process relays that state to all other windows, so every screen shows the same view offset by its monitor position.
+1. **`main.js`** detects every connected display, opens a fullscreen frameless window on each one, and **automatically injects** the IPC sync code into any HTML page after it loads — via `executeJavaScript`.
+2. **`index.html`** (or any HTML you create) just needs global `tx`, `ty`, `tz` variables and an `applyStage()` function. No IPC code needed in the HTML — `main.js` handles it all.
+3. When the user pans or zooms, the injected sync code broadcasts the transform state to all other windows so every screen stays in sync, offset by its monitor position.
 
 ## Build It From Scratch
 
@@ -80,64 +80,71 @@ app.whenReady().then(() => {
     win.loadFile('index.html');
     win.setFullScreen(true);
 
+    // Auto-inject IPC sync into any HTML — no need to add it manually
     win.webContents.on('did-finish-load', () => {
-      win.webContents.send('init', {
-        monitorIndex: index,
-        monitorWidth: width,
-        monitorHeight: height
-      });
+      win.webContents.executeJavaScript(`
+        (function() {
+          const { ipcRenderer } = require('electron');
+          const monitorIndex = ${index};
+          const monitorWidth = ${width};
+          let isSyncing = false;
+
+          if (monitorIndex === 1) { tx -= monitorWidth; applyStage(); }
+
+          ipcRenderer.on('sync', (event, data) => {
+            isSyncing = true;
+            tx = data.tx - (monitorIndex * monitorWidth);
+            ty = data.ty; tz = data.tz;
+            applyStage();
+            isSyncing = false;
+          });
+
+          const _applyStage = applyStage;
+          applyStage = function() {
+            _applyStage();
+            if (!isSyncing) {
+              ipcRenderer.send('sync', {
+                tx: tx + (monitorIndex * monitorWidth), ty, tz
+              });
+            }
+          };
+        })();
+      `);
     });
 
     windows.push(win);
   });
 
-  // Relay sync messages between windows
   ipcMain.on('sync', (event, data) => {
     windows.forEach(win => {
-      if (win.webContents !== event.sender) {
-        win.webContents.send('sync', data);
-      }
+      if (win.webContents !== event.sender) win.webContents.send('sync', data);
     });
   });
 });
 ```
 
 **What's happening:**
-- `screen.getAllDisplays()` returns an array of monitor objects with position and size.
+- `screen.getAllDisplays()` returns every connected monitor with its position and size.
 - Each `BrowserWindow` is placed at the exact `x, y` of its display and set to fullscreen.
 - `frame: false` removes the title bar for a clean look.
-- `nodeIntegration: true` lets the renderer `require('electron')` for IPC.
-- When any window sends a `'sync'` event, the main process forwards it to all *other* windows.
+- `executeJavaScript` auto-injects the sync logic after the page loads — your HTML stays untouched.
+- `ipcMain` relays pan/zoom state from one window to all others.
 
 #### 5. Create the renderer — `index.html`
 
 This is the page loaded in each window. It draws a large world of blocks and handles mouse pan + scroll zoom.
 
-Create `index.html` with:
-- A CSS-styled dark canvas with a dot-grid background
-- Colored blocks positioned across an 8000px-wide world (so content spans both monitors)
-- Mouse event listeners for panning (click-drag) and zooming (scroll wheel)
-- Electron IPC code wrapped in a `try/catch` so the file also works in a regular browser (without sync)
+Your HTML only needs three things — **no IPC code required**, `main.js` injects it automatically:
 
-The IPC sync logic:
 ```js
-// Each window offsets its view by (monitorIndex * monitorWidth)
-// When sending: add the offset so coordinates are in "world space"
-// When receiving: subtract the offset to convert back to "local space"
-ipcRenderer.send('sync', {
-  tx: tx + (monitorIndex * monitorWidth),
-  ty: ty,
-  tz: tz
-});
+let tx = 0, ty = 0, tz = 1;  // pan/zoom state (global)
 
-ipcRenderer.on('sync', (event, data) => {
-  tx = data.tx - (monitorIndex * monitorWidth);
-  ty = data.ty;
-  tz = data.tz;
-});
+function applyStage() {
+  stage.style.transform = `translate(${tx}px,${ty}px) scale(${tz})`;
+}
 ```
 
-See the full `index.html` in this repo for the complete code.
+That's it. Add your own layout, blocks, or design freely. See `index.html` in this repo for a full working example.
 
 #### 6. Run it
 
