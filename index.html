@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Dual Monitor Test</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0e0e12;
+      overflow: hidden;
+      width: 100vw; height: 100vh;
+      font-family: sans-serif;
+      color: white;
+    }
+    #canvas {
+      position: absolute; inset: 0; overflow: hidden;
+      background-image: radial-gradient(circle, #2a2a40 1px, transparent 1px);
+      background-size: 36px 36px;
+      cursor: grab;
+    }
+    #canvas.dragging { cursor: grabbing; }
+    #stage {
+      position: absolute; top: 0; left: 0;
+      width: 0; height: 0;
+      transform-origin: 0 0;
+    }
+
+    /* Big colored strip spanning both monitors */
+    #world {
+      position: absolute;
+      top: -200px; left: -200px;
+      width: 8000px; height: 2000px;
+    }
+
+    .block {
+      position: absolute;
+      border-radius: 20px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 28px; font-weight: bold;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    }
+
+    #label {
+      position: fixed;
+      bottom: 20px; left: 50%;
+      transform: translateX(-50%);
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 30px;
+      padding: 8px 20px;
+      font-size: 13px;
+      color: #aaa;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+
+<div id="canvas">
+  <div id="stage">
+    <div id="world">
+
+      <!-- Left side blocks -->
+      <div class="block" style="left:100px; top:300px; width:300px; height:180px; background:#7c6af5;">🖥️ Monitor 1</div>
+      <div class="block" style="left:500px; top:200px; width:220px; height:120px; background:#4ecdc4;">Node A</div>
+      <div class="block" style="left:500px; top:400px; width:220px; height:120px; background:#e94560;">Node B</div>
+      <div class="block" style="left:800px; top:150px; width:200px; height:100px; background:#f7971e;">Node C</div>
+      <div class="block" style="left:800px; top:320px; width:200px; height:100px; background:#56ab2f;">Node D</div>
+      <div class="block" style="left:800px; top:490px; width:200px; height:100px; background:#eb5757;">Node E</div>
+
+      <!-- Middle connector text -->
+      <div class="block" style="left:1150px; top:320px; width:260px; height:80px; background:rgba(255,255,255,0.05); border:2px dashed #555; font-size:14px; color:#888;">← drag across here →</div>
+
+      <!-- Right side blocks (visible on monitor 2) -->
+      <div class="block" style="left:1800px; top:300px; width:300px; height:180px; background:#9d8fff;">🖥️ Monitor 2</div>
+      <div class="block" style="left:2200px; top:200px; width:220px; height:120px; background:#4ecdc4;">Node F</div>
+      <div class="block" style="left:2200px; top:400px; width:220px; height:120px; background:#e94560;">Node G</div>
+      <div class="block" style="left:2500px; top:150px; width:200px; height:100px; background:#f7971e;">Node H</div>
+      <div class="block" style="left:2500px; top:320px; width:200px; height:100px; background:#56ab2f;">Node I</div>
+      <div class="block" style="left:2500px; top:490px; width:200px; height:100px; background:#eb5757;">Node J</div>
+
+    </div>
+  </div>
+</div>
+
+<div id="label">🖱️ Click and drag to pan across both monitors</div>
+
+<script>
+  const canvas = document.getElementById('canvas');
+  const stage  = document.getElementById('stage');
+
+  let tx = 200, ty = 200, tz = 1;
+  let dragging = false;
+  let lastX = 0, lastY = 0;
+
+  function applyStage() {
+    stage.style.transform = `translate(${tx}px,${ty}px) scale(${tz})`;
+  }
+
+  // Pan
+  canvas.addEventListener('mousedown', e => {
+    dragging = true;
+    lastX = e.clientX; lastY = e.clientY;
+    canvas.classList.add('dragging');
+  });
+  document.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    tx += e.clientX - lastX;
+    ty += e.clientY - lastY;
+    lastX = e.clientX; lastY = e.clientY;
+    applyStage();
+  });
+  document.addEventListener('mouseup', () => {
+    dragging = false;
+    canvas.classList.remove('dragging');
+  });
+
+  // Zoom
+  canvas.addEventListener('wheel', e => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? 0.9 : 1.1;
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    tx = mx - (mx - tx) * delta;
+    ty = my - (my - ty) * delta;
+    tz *= delta;
+    applyStage();
+  }, { passive: false });
+
+  applyStage();
+
+  // ── Dual Monitor Sync ──────────────────────────────
+  try {
+    const { ipcRenderer } = require('electron');
+
+    let monitorIndex = 0;
+    let monitorWidth = window.innerWidth;
+    let isSyncing = false;
+
+    ipcRenderer.on('init', (event, data) => {
+      monitorIndex = data.monitorIndex;
+      monitorWidth = data.monitorWidth;
+      if (monitorIndex === 1) {
+        tx -= monitorWidth;
+        applyStage();
+      }
+    });
+
+    ipcRenderer.on('sync', (event, data) => {
+      isSyncing = true;
+      tx = data.tx - (monitorIndex * monitorWidth);
+      ty = data.ty;
+      tz = data.tz;
+      applyStage();
+      isSyncing = false;
+    });
+
+    const _applyStage = applyStage;
+    applyStage = function () {
+      _applyStage();
+      if (!isSyncing) {
+        ipcRenderer.send('sync', {
+          tx: tx + (monitorIndex * monitorWidth),
+          ty: ty,
+          tz: tz
+        });
+      }
+    };
+
+  } catch(e) {
+    // Running in normal browser — sync disabled, that's fine
+    console.log('Not in Electron, sync disabled.');
+  }
+</script>
+
+</body>
+</html>

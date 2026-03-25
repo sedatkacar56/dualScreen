@@ -1,0 +1,11 @@
+{
+  "name": "dual-screen-app",
+  "version": "1.0.0",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "dependencies": {
+    "electron": "^41.0.4"
+  }
+}
