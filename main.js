@@ -67,8 +67,8 @@ function launchOnAllDisplays(filePath) {
             const monitorWidth = ${width};
             let isSyncing = false;
 
-            if (monitorIndex === 1) {
-              tx -= monitorWidth;
+            if (monitorIndex > 0) {
+              tx -= monitorWidth * monitorIndex;
               applyStage();
             }
 

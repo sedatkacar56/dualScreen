@@ -1,6 +1,6 @@
 {
   "name": "dual-screen-app",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Display and sync any HTML file across multiple monitors",
   "author": "Sedat Kacar",
   "main": "main.js",
