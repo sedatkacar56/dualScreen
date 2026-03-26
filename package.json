@@ -25,12 +25,18 @@
     },
     "nsis": {
       "oneClick": false,
+      "perMachine": false,
       "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
+      "allowElevation": false,
+      "createDesktopShortcut": "always",
       "createStartMenuShortcut": true,
       "shortcutName": "DualScreen",
       "installerIcon": "icon.ico",
-      "uninstallerIcon": "icon.ico"
+      "uninstallerIcon": "icon.ico",
+      "installerSidebar": null,
+      "license": null,
+      "runAfterFinish": true,
+      "menuCategory": false
     },
     "publish": {
       "provider": "github",
