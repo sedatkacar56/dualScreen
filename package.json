@@ -1,30 +1,58 @@
 {
   "name": "dual-screen-app",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Display and sync any HTML file across multiple monitors",
   "author": "Sedat Kacar",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "build": "electron-builder --win"
+    "build:portable": "electron-builder --win --config.win.target=portable",
+    "build:installer": "electron-builder --win --config.win.target=nsis",
+    "build:all": "electron-builder --win"
   },
   "build": {
     "appId": "com.dualscreen.app",
     "productName": "DualScreen",
+    "icon": "icon.ico",
     "win": {
-      "target": "portable",
+      "target": [
+        "portable",
+        "nsis"
+      ],
+      "icon": "icon.ico",
       "signAndEditExecutable": false,
       "signingHashAlgorithms": null
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "DualScreen",
+      "installerIcon": "icon.ico",
+      "uninstallerIcon": "icon.ico"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "sedatkacar56",
+      "repo": "dualScreen"
     },
     "files": [
       "main.js",
       "index.html",
-      "picker.html"
+      "picker.html",
+      "icon.png",
+      "icon.ico"
     ],
     "extraResources": []
   },
+  "dependencies": {
+    "electron-updater": "^6.8.3"
+  },
   "devDependencies": {
     "electron": "^41.0.4",
-    "electron-builder": "^25.1.8"
+    "electron-builder": "^25.1.8",
+    "jimp": "^1.6.0",
+    "png-to-ico": "^3.0.1"
   }
 }

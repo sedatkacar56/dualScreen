@@ -1,7 +1,34 @@
 const { app, BrowserWindow, screen, ipcMain, dialog } = require('electron');
+const { autoUpdater } = require('electron-updater');
 const path = require('path');
 
 let windows = [];
+
+// Auto-update: check for updates on launch
+autoUpdater.autoDownload = false;
+app.on('ready', () => {
+  autoUpdater.checkForUpdates().catch(() => {});
+});
+autoUpdater.on('update-available', (info) => {
+  dialog.showMessageBox({
+    type: 'info',
+    title: 'Update Available',
+    message: `DualScreen v${info.version} is available. Download now?`,
+    buttons: ['Download', 'Later']
+  }).then(result => {
+    if (result.response === 0) autoUpdater.downloadUpdate();
+  });
+});
+autoUpdater.on('update-downloaded', () => {
+  dialog.showMessageBox({
+    type: 'info',
+    title: 'Update Ready',
+    message: 'Update downloaded. The app will restart to install it.',
+    buttons: ['Restart Now', 'Later']
+  }).then(result => {
+    if (result.response === 0) autoUpdater.quitAndInstall();
+  });
+});
 
 function launchOnAllDisplays(filePath) {
   // Close any existing windows
