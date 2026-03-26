@@ -36,7 +36,9 @@
       "installerSidebar": null,
       "license": null,
       "runAfterFinish": true,
-      "menuCategory": false
+      "menuCategory": false,
+      "guid": "dual-screen-app",
+      "include": "installer.nsh"
     },
     "publish": {
       "provider": "github",
