@@ -44,6 +44,38 @@
       margin-top: 5px;
       min-height: 18px;
     }
+    .url-row {
+      display: flex;
+      gap: 8px;
+      width: 420px;
+      margin-top: 6px;
+    }
+    .url-row input {
+      flex: 1;
+      background: #1e1e2a;
+      border: 1px solid #444;
+      border-radius: 10px;
+      padding: 10px 14px;
+      color: #e0e0ee;
+      font-size: 14px;
+      outline: none;
+    }
+    .url-row input:focus { border-color: #7c6af5; }
+    .url-row input::placeholder { color: #555; }
+    .divider {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: 420px;
+      color: #444;
+      font-size: 12px;
+    }
+    .divider::before, .divider::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: #333;
+    }
   </style>
 </head>
 <body>
@@ -51,6 +83,13 @@
   <h1>Dual Screen Viewer</h1>
   <p>Choose an HTML, video, image, or PDF file to display across your monitors, or use the built-in demo.</p>
   <p style="font-size:11px; color:#666;">HTML: pan/zoom syncs &nbsp;|&nbsp; Video: playback syncs &nbsp;|&nbsp; Image: pan/zoom syncs &nbsp;|&nbsp; PDF: native viewer</p>
+
+  <div class="url-row">
+    <input type="text" id="urlInput" placeholder="https://example.com — paste any website URL">
+    <button class="btn btn-primary" id="urlBtn">Open</button>
+  </div>
+
+  <div class="divider">or choose a file</div>
 
   <div class="buttons">
     <button class="btn btn-primary" id="browseBtn">Browse File</button>
@@ -71,6 +110,17 @@
 
   document.getElementById('demoBtn').addEventListener('click', () => {
     ipcRenderer.send('use-default');
+  });
+
+  document.getElementById('urlBtn').addEventListener('click', () => {
+    const url = document.getElementById('urlInput').value.trim();
+    if (!url) return;
+    const full = url.startsWith('http') ? url : 'https://' + url;
+    ipcRenderer.send('open-url', full);
+  });
+
+  document.getElementById('urlInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') document.getElementById('urlBtn').click();
   });
 </script>
 

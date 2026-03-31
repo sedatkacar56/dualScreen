@@ -43,6 +43,9 @@ function isImageFile(filePath) {
 function isPdfFile(filePath) {
   return PDF_EXTENSIONS.some(ext => filePath.toLowerCase().endsWith(ext));
 }
+function isUrl(str) {
+  return str.startsWith('http://') || str.startsWith('https://');
+}
 
 function launchVideoOnAllDisplays(filePath) {
   windows.forEach(w => w.close());
@@ -145,6 +148,81 @@ function launchPdfOnAllDisplays(filePath) {
   });
 }
 
+function launchUrlOnAllDisplays(url) {
+  windows.forEach(w => w.close());
+  windows = [];
+
+  const displays = screen.getAllDisplays();
+  const preloadPath = path.join(__dirname, 'url-preload.js');
+
+  displays.forEach((display, index) => {
+    const { x, y, width, height } = display.bounds;
+
+    const win = new BrowserWindow({
+      x, y, width, height,
+      frame: false,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        webSecurity: false,
+        preload: preloadPath
+      }
+    });
+
+    win.loadURL(url);
+    win.setFullScreen(true);
+
+    win.webContents.on('did-finish-load', () => {
+      win.webContents.executeJavaScript(`
+        (function() {
+          const monitorIndex = ${index};
+          const screenW = ${width};
+          let isSyncing = false;
+
+          // Scroll this monitor to its horizontal slice
+          setTimeout(() => {
+            window.scrollTo({ left: monitorIndex * screenW, top: 0, behavior: 'instant' });
+          }, 500);
+
+          // Sync scroll to other monitors
+          window.addEventListener('scroll', () => {
+            if (isSyncing) return;
+            if (window.dualScreen) {
+              window.dualScreen.sendSync({
+                scrollX: window.scrollX + monitorIndex * screenW,
+                scrollY: window.scrollY
+              });
+            }
+          }, { passive: true });
+
+          // Receive sync from other monitors
+          if (window.dualScreen) {
+            window.dualScreen.onSync((data) => {
+              if (data.action === 'close') { window.close(); return; }
+              isSyncing = true;
+              window.scrollTo({
+                left: data.scrollX - monitorIndex * screenW,
+                top: data.scrollY,
+                behavior: 'instant'
+              });
+              setTimeout(() => { isSyncing = false; }, 50);
+            });
+          }
+
+          // Escape to close all
+          document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && window.dualScreen) {
+              window.dualScreen.sendSync({ action: 'close' });
+            }
+          });
+        })();
+      `);
+    });
+
+    windows.push(win);
+  });
+}
+
 function launchOnAllDisplays(filePath) {
   // Close any existing windows
   windows.forEach(w => w.close());
@@ -232,6 +310,10 @@ function launchOnAllDisplays(filePath) {
 app.whenReady().then(() => {
   // Check if a file was passed as argument (drag & drop onto .exe)
   const fileArg = process.argv.find((arg, i) => i > 0 && !arg.startsWith('-'));
+  if (fileArg && isUrl(fileArg)) {
+    launchUrlOnAllDisplays(fileArg);
+    return;
+  }
   if (fileArg && (fileArg.endsWith('.html') || fileArg.endsWith('.htm') || isVideoFile(fileArg) || isImageFile(fileArg) || isPdfFile(fileArg))) {
     launchOnAllDisplays(path.resolve(fileArg));
     return;
@@ -286,6 +368,11 @@ app.whenReady().then(() => {
     launchOnAllDisplays(path.join(__dirname, 'index.html'));
   });
 
+  ipcMain.on('open-url', (event, url) => {
+    pickerWin.close();
+    launchUrlOnAllDisplays(url);
+  });
+
   // Relay sync messages between display windows (HTML pan/zoom, image pan/zoom)
   ipcMain.on('sync', (event, data) => {
     if (data.action === 'close') {
@@ -297,6 +384,21 @@ app.whenReady().then(() => {
     windows.forEach(win => {
       if (win.webContents !== event.sender) {
         win.webContents.send('sync', data);
+      }
+    });
+  });
+
+  // Relay URL scroll sync messages
+  ipcMain.on('url-sync', (event, data) => {
+    if (data.action === 'close') {
+      windows.forEach(w => w.close());
+      windows = [];
+      app.quit();
+      return;
+    }
+    windows.forEach(win => {
+      if (win.webContents !== event.sender) {
+        win.webContents.send('url-sync', data);
       }
     });
   });

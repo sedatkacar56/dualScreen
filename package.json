@@ -1,6 +1,6 @@
 {
   "name": "dual-screen-app",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Display and sync any HTML file across multiple monitors",
   "author": "Sedat Kacar",
   "main": "main.js",
@@ -51,6 +51,7 @@
       "picker.html",
       "video-player.html",
       "image-viewer.html",
+      "url-preload.js",
       "icon.png",
       "icon.ico"
     ],

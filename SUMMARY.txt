@@ -1,0 +1,302 @@
+================================================================================
+  DUALSCREEN PROJECT — FULL SUMMARY FOR NEW AI SESSION
+  Author: Sedat Kacar (sedatkacar56)
+  GitHub: https://github.com/sedatkacar56/dualScreen
+  Latest Release: v1.0.4 (live on GitHub)
+  Project Folder: C:\Users\skacar\OneDrive - Indiana University\OTHERS\Desktop\dual-screen-html
+================================================================================
+
+WHAT IS THIS PROJECT?
+----------------------
+An Electron desktop app (.exe) called "DualScreen" that opens any file
+fullscreen across ALL connected monitors simultaneously, with sync.
+
+Supported files:
+  HTML  → pan/zoom synced across all monitors
+  Video → playback synced, 5 display modes, monitor grid layout
+  Image → spans all monitors as one wide panorama, pan/zoom synced
+  PDF   → opens on every monitor (no scroll sync yet)
+
+To run: npm start
+To build: npm run build:all
+Builds go to: dist/ folder
+
+
+================================================================================
+VERSION HISTORY — WHAT CHANGED IN EACH VERSION
+================================================================================
+
+----------------------------------------------------------------------
+v1.0.0 — Initial Release
+----------------------------------------------------------------------
+WHAT WAS BUILT:
+- Basic Electron app
+- Opens a single HTML file (index.html) across all monitors
+- index.html = animated nighttime city demo (6000px wide canvas)
+  - Stars, moon, shooting star, airplane, buildings, road, cars, river
+  - Red car goes left→right (12s), teal car goes right→left (15s)
+  - Labels: Monitor 1, Monitor 2, Monitor 3
+- Pan (click+drag) and zoom (scroll wheel) synced across monitors
+- IPC sync via tx/ty/tz globals + applyStage() function
+- Portable .exe build
+
+SYNC MECHANISM (HTML):
+- HTML page must have: let tx, ty, tz and function applyStage()
+- main.js injects IPC sync code automatically after page loads
+- Monitor N shows: tx - (monitorIndex * monitorWidth) of the canvas
+- All monitors stay in sync when you pan/zoom on any one of them
+
+----------------------------------------------------------------------
+v1.0.1 — File Picker + NSIS Installer + Auto-Update
+----------------------------------------------------------------------
+WHAT CHANGED:
+- Added picker.html: startup UI to choose a file or use demo
+  - "Browse File" button → file dialog (HTML files only at this point)
+  - "Use Demo" button → loads index.html
+- page.html trick: if page.html exists next to exe, it loads automatically
+  (users can rename their HTML to page.html and it opens without picker)
+- Added NSIS installer (DualScreen Setup X.X.X.exe) in addition to portable
+- Added auto-update via electron-updater + GitHub Releases
+  - Checks for update on launch silently
+  - Shows dialog: "Update available, download?" → user confirms
+  - Shows dialog: "Update downloaded, restart now?" → user confirms
+- Added custom app icon (icon.ico / icon.png)
+  - Purple monitors with teal sync dot, 256x256
+  - Made with generate-icon.js using jimp + png-to-ico
+
+BUGS FIXED:
+- electron must be in devDependencies (not dependencies) for electron-builder
+- Code signing fails on enterprise Windows → added to package.json:
+    signAndEditExecutable: false
+    signingHashAlgorithms: null
+- NSIS installer was asking for admin → fixed with:
+    perMachine: false
+    allowElevation: false
+- picker.html was using deprecated remote module → switched to IPC:
+    ipcMain.on('open-file-dialog') in main.js
+
+NSIS INSTALLER DETAILS (package.json):
+  oneClick: false                          ← shows install wizard
+  perMachine: false                        ← installs per user, no admin
+  allowElevation: false                    ← no UAC prompt
+  allowToChangeInstallationDirectory: true ← user picks install folder
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: DualScreen
+  guid: dual-screen-app
+  include: installer.nsh                   ← custom upgrade detection
+
+installer.nsh:
+  Before installing, checks if old version exists in registry.
+  If yes → asks user to confirm replacement → runs old uninstaller silently.
+  This prevents two entries appearing in Add/Remove Programs.
+
+AUTO-UPDATE (main.js):
+  autoUpdater.autoDownload = false
+  On ready → checkForUpdates()
+  update-available → dialog to download
+  update-downloaded → dialog to restart
+  Publish config: github provider → sedatkacar56/dualScreen
+
+----------------------------------------------------------------------
+v1.0.2 — Multi-Monitor Sync Fix + Better Demo
+----------------------------------------------------------------------
+WHAT CHANGED:
+- Fixed sync for 3+ monitors (was broken, only worked for 2)
+  OLD: if (monitorIndex === 1) tx -= monitorWidth;
+  NEW: if (monitorIndex > 0) tx -= monitorWidth * monitorIndex;
+- Improved index.html demo to clearly show monitors are continuation of each other
+- Added "Watch the car and plane travel from screen to screen!" hint text
+- drag-and-drop support: drag any HTML file onto the .exe to open it
+
+----------------------------------------------------------------------
+v1.0.3 — Video Support
+----------------------------------------------------------------------
+WHAT CHANGED:
+- Added full video player (video-player.html)
+- Supported video formats: .mp4 .mkv .webm .avi .mov .m4v
+- main.js detects video files and loads video-player.html instead of HTML viewer
+
+VIDEO PLAYER FEATURES:
+  5 display modes (gear icon ⚙):
+    Fill    → fills all monitors, may crop top/bottom
+    Fit     → shows full video, black bars if needed
+    Stretch → keeps height, stretches width using CSS scaleX()
+              Width slider (0-100%), Shift slider (up/down)
+    Custom  → scale slider (50-200%) + vertical position slider
+    Smart Crop → full width, crop slider controls how much height to show
+
+  Monitor Layout (in settings panel):
+    Columns x Rows dropdowns (1-4 each)
+    Default: auto-set (3 monitors → 3 cols x 1 row)
+    Grid preview shows colored squares for active monitors
+    Examples: 2x1=side by side, 1x2=stacked, 2x2=four monitor grid
+    Layout synced to all monitors
+
+  Playback controls:
+    Play/Pause button + Space key
+    Seek bar (click to jump)
+    ArrowRight = +10s, ArrowLeft = -10s
+    Volume + mute (monitor 0 only, hidden on others)
+    Controls auto-hide after 3 seconds
+
+  Sync:
+    Play/pause/seek → instant sync to all monitors
+    Every 5 seconds → timecheck sent
+    If drift > 0.3s → snap to correct time
+    Settings changes (fit mode, layout) → synced immediately
+
+  Audio: only monitor 0 plays audio, others are muted
+
+BUGS FIXED:
+- Video stretch width was not working → CSS width property doesn't
+  stretch rendered content → fixed with transform: scaleX()
+- Stretch slider default was 100% (no visible change) → changed to 0%
+- Video positioning had black gap on left monitor → fixed grid math:
+  myCol = monitorIndex % gridCols
+  myRow = Math.floor(monitorIndex / gridCols)
+  offsetX = myCol * screenW
+  offsetY = myRow * screenH
+
+picker.html updated: added video file filter to file dialog
+package.json: added video-player.html to build files list
+
+----------------------------------------------------------------------
+v1.0.4 — Image + PDF Support (CURRENT VERSION — RELEASED)
+----------------------------------------------------------------------
+WHAT CHANGED:
+- Added image support: jpg jpeg png gif bmp webp svg tiff tif
+  → image-viewer.html: image spans ALL monitors as one wide panorama
+  → pan/zoom synced across monitors via IPC 'sync' channel
+  → on load: image auto-centered and scaled to fit all monitors
+  → Escape closes all monitors
+
+- Added PDF support: .pdf
+  → uses Electron's built-in Chromium PDF viewer
+  → each monitor shows the same PDF
+  → no scroll sync (yet)
+  → Escape closes all monitors
+
+- File picker now shows "All Supported" filter (all types in one)
+- Drag and drop onto .exe now works for images and PDFs too
+- Added MEMORY.md and PROJECT_MEMORY.txt to project folder
+
+BUGS FIXED:
+  None new — clean build first try.
+
+GitHub Release:
+  https://github.com/sedatkacar56/dualScreen/releases/tag/v1.0.4
+  Files: DualScreen 1.0.4.exe (portable) + DualScreen Setup 1.0.4.exe (installer)
+
+
+================================================================================
+FILES IN PROJECT AND WHAT THEY DO
+================================================================================
+
+main.js
+  The Electron main process. Brain of the app.
+  - Startup: checks for file arg → page.html → shows picker
+  - Detects file type → routes to correct launcher function
+  - launchOnAllDisplays()       → HTML files (with sync injection)
+  - launchVideoOnAllDisplays()  → video files
+  - launchImageOnAllDisplays()  → image files
+  - launchPdfOnAllDisplays()    → PDF files
+  - IPC relay: 'sync' (HTML+image), 'video-sync' (video)
+  - Auto-update logic
+
+index.html
+  Built-in demo. Animated city, 6000px wide.
+  Has tx/ty/tz + applyStage() → works with auto-sync injection.
+
+picker.html
+  Startup file chooser. "Browse File" + "Use Demo" buttons.
+  File dialog filters: HTML, Video, Image, PDF, All Supported.
+
+video-player.html
+  Full video player with 5 display modes, monitor grid layout,
+  playback controls, sync logic.
+
+image-viewer.html
+  Image viewer. Handles its own IPC sync (not injected).
+  Image spans all monitors as one panorama.
+
+package.json
+  Version: 1.0.4
+  Build targets: portable + nsis
+  Publish: github → sedatkacar56/dualScreen
+  Critical settings: signAndEditExecutable:false, perMachine:false, allowElevation:false
+
+installer.nsh
+  NSIS script for upgrade detection (checks registry before installing).
+
+generate-icon.js
+  One-time script that created icon.ico and icon.png.
+
+start.bat
+  Double-click to run: npm install && npm start
+
+MEMORY.md
+  Index pointing to PROJECT_MEMORY.txt
+
+PROJECT_MEMORY.txt
+  Detailed technical memory (more detail than this file).
+
+SUMMARY.txt
+  This file. Give it to new AI to understand the full project.
+
+
+================================================================================
+ENVIRONMENT & TOOLS
+================================================================================
+
+OS: Windows 11 Enterprise (no admin rights, no winget)
+Shell: bash (via Claude Code)
+Node: npm available
+Electron: v41.0.4 (in devDependencies)
+electron-builder: v25.1.8
+electron-updater: v6.8.3
+
+GitHub CLI (gh):
+  Installed manually at: C:\Users\skacar\gh\bin\gh.exe
+  (winget was blocked by group policy, downloaded binary from GitHub)
+  Already authenticated (gh auth login done)
+
+Git remote: https://github.com/sedatkacar56/dualScreen.git
+Branch: main
+
+
+================================================================================
+HOW TO DO A NEW RELEASE (step by step)
+================================================================================
+
+1. Make code changes in the project files
+2. Bump version in package.json (e.g. "1.0.4" → "1.0.5")
+3. Test: npm start
+4. Build: npm run build:all
+   → creates: dist/DualScreen X.X.X.exe
+   → creates: dist/DualScreen Setup X.X.X.exe
+5. Commit and push:
+   git add [changed files]
+   git commit -m "vX.X.X - what changed"
+   git push
+6. Create GitHub release:
+   C:\Users\skacar\gh\bin\gh.exe release create vX.X.X \
+     "dist/DualScreen X.X.X.exe" \
+     "dist/DualScreen Setup X.X.X.exe" \
+     --title "DualScreen vX.X.X" \
+     --notes "what changed"
+
+
+================================================================================
+PENDING / IDEAS FOR FUTURE
+================================================================================
+
+- PDF scroll sync across monitors (currently each monitor is independent)
+- Maybe: right-click menu to close instead of only Escape key
+- Maybe: remember last opened file
+- Update README.md to mention image + PDF support (not done yet)
+
+
+================================================================================
+END OF SUMMARY
+================================================================================
