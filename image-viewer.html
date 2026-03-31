@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>DualScreen Image</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0a0a14;
+      overflow: hidden;
+      width: 100vw; height: 100vh;
+      font-family: 'Segoe UI', sans-serif;
+      color: white;
+    }
+    #canvas {
+      position: absolute; inset: 0; overflow: hidden;
+      cursor: grab;
+    }
+    #canvas.dragging { cursor: grabbing; }
+    #stage {
+      position: absolute; top: 0; left: 0;
+      width: 0; height: 0;
+      transform-origin: 0 0;
+    }
+    #img {
+      position: absolute;
+      top: 0; left: 0;
+      max-width: none;
+    }
+    #label {
+      position: fixed;
+      bottom: 20px; left: 50%;
+      transform: translateX(-50%);
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 30px;
+      padding: 8px 20px;
+      font-size: 13px;
+      color: #aaa;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+
+<div id="canvas">
+  <div id="stage">
+    <img id="img">
+  </div>
+</div>
+
+<div id="label">Click and drag to pan, scroll to zoom</div>
+
+<script>
+  const { ipcRenderer } = require('electron');
+  const canvas = document.getElementById('canvas');
+  const stage = document.getElementById('stage');
+  const img = document.getElementById('img');
+
+  let tx = 0, ty = 0, tz = 1;
+  let dragging = false;
+  let lastX = 0, lastY = 0;
+  let monitorIndex = 0;
+  let monitorWidth = window.innerWidth;
+  let isSyncing = false;
+
+  function applyStage() {
+    stage.style.transform = `translate(${tx}px,${ty}px) scale(${tz})`;
+    if (!isSyncing) {
+      ipcRenderer.send('sync', {
+        tx: tx + (monitorIndex * monitorWidth),
+        ty: ty,
+        tz: tz
+      });
+    }
+  }
+
+  ipcRenderer.on('sync', (event, data) => {
+    isSyncing = true;
+    tx = data.tx - (monitorIndex * monitorWidth);
+    ty = data.ty;
+    tz = data.tz;
+    stage.style.transform = `translate(${tx}px,${ty}px) scale(${tz})`;
+    isSyncing = false;
+  });
+
+  ipcRenderer.on('image-init', (event, data) => {
+    monitorIndex = data.monitorIndex;
+    monitorWidth = window.innerWidth;
+
+    img.src = 'file://' + data.filePath.replace(/\\/g, '/');
+    img.onload = () => {
+      const screenW = window.innerWidth;
+      const screenH = window.innerHeight;
+      const totalWidth = screenW * data.totalMonitors;
+      tz = 1;
+      if (img.naturalWidth > totalWidth || img.naturalHeight > screenH) {
+        tz = Math.min(totalWidth / img.naturalWidth, screenH / img.naturalHeight);
+      }
+      // Center across all monitors
+      const fullTx = (totalWidth - img.naturalWidth * tz) / 2;
+      tx = fullTx - monitorIndex * screenW;
+      ty = (screenH - img.naturalHeight * tz) / 2;
+      applyStage();
+    };
+  });
+
+  // Pan
+  canvas.addEventListener('mousedown', e => {
+    dragging = true;
+    lastX = e.clientX; lastY = e.clientY;
+    canvas.classList.add('dragging');
+  });
+  document.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    tx += e.clientX - lastX;
+    ty += e.clientY - lastY;
+    lastX = e.clientX; lastY = e.clientY;
+    applyStage();
+  });
+  document.addEventListener('mouseup', () => {
+    dragging = false;
+    canvas.classList.remove('dragging');
+  });
+
+  // Zoom
+  canvas.addEventListener('wheel', e => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? 0.9 : 1.1;
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    tx = mx - (mx - tx) * delta;
+    ty = my - (my - ty) * delta;
+    tz *= delta;
+    applyStage();
+  }, { passive: false });
+
+  // Escape to close
+  document.addEventListener('keydown', e => {
+    if (e.code === 'Escape') {
+      ipcRenderer.send('sync', { action: 'close' });
+      window.close();
+    }
+  });
+
+  applyStage();
+</script>
+
+</body>
+</html>

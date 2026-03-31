@@ -30,10 +30,138 @@ autoUpdater.on('update-downloaded', () => {
   });
 });
 
+const VIDEO_EXTENSIONS = ['.mp4', '.mkv', '.webm', '.avi', '.mov', '.m4v'];
+const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg', '.tiff', '.tif'];
+const PDF_EXTENSIONS = ['.pdf'];
+
+function isVideoFile(filePath) {
+  return VIDEO_EXTENSIONS.some(ext => filePath.toLowerCase().endsWith(ext));
+}
+function isImageFile(filePath) {
+  return IMAGE_EXTENSIONS.some(ext => filePath.toLowerCase().endsWith(ext));
+}
+function isPdfFile(filePath) {
+  return PDF_EXTENSIONS.some(ext => filePath.toLowerCase().endsWith(ext));
+}
+
+function launchVideoOnAllDisplays(filePath) {
+  windows.forEach(w => w.close());
+  windows = [];
+
+  const displays = screen.getAllDisplays();
+
+  displays.forEach((display, index) => {
+    const { x, y, width, height } = display.bounds;
+
+    const win = new BrowserWindow({
+      x, y, width, height,
+      frame: false,
+      webPreferences: {
+        nodeIntegration: true,
+        contextIsolation: false
+      }
+    });
+
+    win.loadFile('video-player.html');
+    win.setFullScreen(true);
+
+    win.webContents.on('did-finish-load', () => {
+      win.webContents.send('video-init', {
+        filePath: filePath,
+        monitorIndex: index,
+        totalMonitors: displays.length
+      });
+    });
+
+    windows.push(win);
+  });
+}
+
+function launchImageOnAllDisplays(filePath) {
+  windows.forEach(w => w.close());
+  windows = [];
+
+  const displays = screen.getAllDisplays();
+
+  displays.forEach((display, index) => {
+    const { x, y, width, height } = display.bounds;
+
+    const win = new BrowserWindow({
+      x, y, width, height,
+      frame: false,
+      webPreferences: {
+        nodeIntegration: true,
+        contextIsolation: false
+      }
+    });
+
+    win.loadFile('image-viewer.html');
+    win.setFullScreen(true);
+
+    win.webContents.on('did-finish-load', () => {
+      win.webContents.send('image-init', {
+        filePath: filePath,
+        monitorIndex: index,
+        totalMonitors: displays.length
+      });
+    });
+
+    windows.push(win);
+  });
+}
+
+function launchPdfOnAllDisplays(filePath) {
+  windows.forEach(w => w.close());
+  windows = [];
+
+  const displays = screen.getAllDisplays();
+  const fileUrl = 'file:///' + filePath.replace(/\\/g, '/');
+
+  displays.forEach((display, index) => {
+    const { x, y, width, height } = display.bounds;
+
+    const win = new BrowserWindow({
+      x, y, width, height,
+      frame: false,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        plugins: true
+      }
+    });
+
+    win.loadURL(fileUrl);
+    win.setFullScreen(true);
+
+    win.webContents.on('before-input-event', (event, input) => {
+      if (input.key === 'Escape') {
+        windows.forEach(w => w.close());
+        windows = [];
+        app.quit();
+      }
+    });
+
+    windows.push(win);
+  });
+}
+
 function launchOnAllDisplays(filePath) {
   // Close any existing windows
   windows.forEach(w => w.close());
   windows = [];
+
+  if (isVideoFile(filePath)) {
+    launchVideoOnAllDisplays(filePath);
+    return;
+  }
+  if (isImageFile(filePath)) {
+    launchImageOnAllDisplays(filePath);
+    return;
+  }
+  if (isPdfFile(filePath)) {
+    launchPdfOnAllDisplays(filePath);
+    return;
+  }
 
   const displays = screen.getAllDisplays();
   const isHTML = filePath.endsWith('.html') || filePath.endsWith('.htm');
@@ -104,7 +232,7 @@ function launchOnAllDisplays(filePath) {
 app.whenReady().then(() => {
   // Check if a file was passed as argument (drag & drop onto .exe)
   const fileArg = process.argv.find((arg, i) => i > 0 && !arg.startsWith('-'));
-  if (fileArg && (fileArg.endsWith('.html') || fileArg.endsWith('.htm'))) {
+  if (fileArg && (fileArg.endsWith('.html') || fileArg.endsWith('.htm') || isVideoFile(fileArg) || isImageFile(fileArg) || isPdfFile(fileArg))) {
     launchOnAllDisplays(path.resolve(fileArg));
     return;
   }
@@ -133,9 +261,13 @@ app.whenReady().then(() => {
 
   ipcMain.on('open-file-dialog', async (event) => {
     const result = await dialog.showOpenDialog(pickerWin, {
-      title: 'Choose an HTML file',
+      title: 'Choose a file',
       filters: [
+        { name: 'All Supported', extensions: ['html', 'htm', 'mp4', 'mkv', 'webm', 'avi', 'mov', 'm4v', 'jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg', 'tiff', 'tif', 'pdf'] },
         { name: 'HTML Files', extensions: ['html', 'htm'] },
+        { name: 'Video Files', extensions: ['mp4', 'mkv', 'webm', 'avi', 'mov', 'm4v'] },
+        { name: 'Image Files', extensions: ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg', 'tiff', 'tif'] },
+        { name: 'PDF Files', extensions: ['pdf'] },
         { name: 'All Files', extensions: ['*'] }
       ],
       properties: ['openFile']
@@ -154,11 +286,32 @@ app.whenReady().then(() => {
     launchOnAllDisplays(path.join(__dirname, 'index.html'));
   });
 
-  // Relay sync messages between display windows
+  // Relay sync messages between display windows (HTML pan/zoom, image pan/zoom)
   ipcMain.on('sync', (event, data) => {
+    if (data.action === 'close') {
+      windows.forEach(w => w.close());
+      windows = [];
+      app.quit();
+      return;
+    }
     windows.forEach(win => {
       if (win.webContents !== event.sender) {
         win.webContents.send('sync', data);
+      }
+    });
+  });
+
+  // Relay video sync messages
+  ipcMain.on('video-sync', (event, data) => {
+    if (data.action === 'close') {
+      windows.forEach(w => w.close());
+      windows = [];
+      app.quit();
+      return;
+    }
+    windows.forEach(win => {
+      if (win.webContents !== event.sender) {
+        win.webContents.send('video-sync', data);
       }
     });
   });

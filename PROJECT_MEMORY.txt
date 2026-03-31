@@ -1,0 +1,419 @@
+================================================================================
+  DUALSCREEN PROJECT — COMPLETE MEMORY FILE
+  Author: Sedat Kacar
+  GitHub: https://github.com/sedatkacar56/dualScreen
+  Last Updated: 2026-03-26
+  Current Version: 1.0.4 (coded, NOT yet built/pushed — needs dual monitor test)
+================================================================================
+
+----------------------------------------------------------------------
+WHAT IS THIS APP?
+----------------------------------------------------------------------
+DualScreen is an Electron desktop app (.exe) that displays files
+across ALL connected monitors at once — fullscreen, synchronized.
+
+Supported file types:
+  - HTML files  → pan/zoom synced across all monitors
+  - Video files → playback (play/pause/seek) synced across monitors
+  - Image files → pan/zoom synced, image spans all monitors
+  - PDF files   → Electron native PDF viewer on each monitor
+
+How to run for development:
+  cd "C:\Users\skacar\OneDrive - Indiana University\OTHERS\Desktop\dual-screen-html"
+  npm start
+
+How to build .exe:
+  npm run build:all
+  (produces: dist/DualScreen 1.0.4.exe  and  dist/DualScreen Setup 1.0.4.exe)
+
+GitHub CLI location (installed manually, no winget):
+  C:\Users\skacar\gh\bin\gh.exe
+  (enterprise Windows blocked winget — downloaded binary from GitHub releases directly)
+
+----------------------------------------------------------------------
+PROJECT FOLDER STRUCTURE
+----------------------------------------------------------------------
+dual-screen-html/
+  main.js             ← Electron main process (the brain)
+  index.html          ← Built-in demo (animated city spanning 6000px)
+  picker.html         ← File chooser UI shown at startup
+  video-player.html   ← Video player with sync + display settings
+  image-viewer.html   ← Image viewer with pan/zoom sync
+  package.json        ← Build config, version, dependencies
+  installer.nsh       ← NSIS custom installer script (upgrade detection)
+  generate-icon.js    ← Script that made icon.ico / icon.png
+  icon.ico            ← App icon (256x256, two purple monitors + teal dot)
+  icon.png            ← Same icon as PNG
+  start.bat           ← Double-click to npm install + start
+  .gitignore          ← Ignores: node_modules/, dist/, linkedin-post.txt
+  PROJECT_MEMORY.txt  ← THIS FILE
+
+NOT in git (ignored):
+  node_modules/
+  dist/
+  linkedin-post.txt
+  linkedin-post-short.txt
+
+----------------------------------------------------------------------
+PACKAGE.JSON — KEY SETTINGS
+----------------------------------------------------------------------
+{
+  "name": "dual-screen-app",
+  "version": "1.0.4",
+  "author": "Sedat Kacar",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build:portable": "electron-builder --win --config.win.target=portable",
+    "build:installer": "electron-builder --win --config.win.target=nsis",
+    "build:all": "electron-builder --win"
+  },
+  "build": {
+    "appId": "com.dualscreen.app",
+    "productName": "DualScreen",
+    "icon": "icon.ico",
+    "win": {
+      "target": ["portable", "nsis"],
+      "signAndEditExecutable": false,      ← CRITICAL: enterprise Windows has no symlink privilege
+      "signingHashAlgorithms": null        ← CRITICAL: disables code signing
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,                 ← CRITICAL: no admin rights needed
+      "allowElevation": false,             ← CRITICAL: no UAC prompt
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "DualScreen",
+      "guid": "dual-screen-app",
+      "include": "installer.nsh"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "sedatkacar56",
+      "repo": "dualScreen"
+    },
+    "files": [
+      "main.js", "index.html", "picker.html",
+      "video-player.html", "image-viewer.html",
+      "icon.png", "icon.ico"
+    ]
+  },
+  "dependencies": { "electron-updater": "^6.8.3" },
+  "devDependencies": {
+    "electron": "^41.0.4",
+    "electron-builder": "^25.1.8",
+    "jimp": "^1.6.0",
+    "png-to-ico": "^3.0.1"
+  }
+}
+
+IMPORTANT: electron MUST be in devDependencies, NOT dependencies.
+Otherwise electron-builder throws an error.
+
+----------------------------------------------------------------------
+MAIN.JS — HOW IT WORKS
+----------------------------------------------------------------------
+
+STARTUP LOGIC (in order):
+1. Check if a file was dragged onto the .exe (process.argv)
+   → If yes, open that file directly
+2. Check if page.html exists next to the exe
+   → If yes, open it directly (lets users put their own HTML next to exe)
+3. Otherwise → show picker.html (file chooser UI)
+
+FILE TYPE DETECTION:
+  VIDEO: .mp4 .mkv .webm .avi .mov .m4v  → launchVideoOnAllDisplays()
+  IMAGE: .jpg .jpeg .png .gif .bmp .webp .svg .tiff .tif → launchImageOnAllDisplays()
+  PDF:   .pdf  → launchPdfOnAllDisplays()
+  HTML:  .html .htm → launchOnAllDisplays() with sync injection
+
+HTML SYNC INJECTION:
+  When an HTML file is loaded, main.js injects JavaScript into the page.
+  It looks for globals: tx, ty, tz, applyStage()
+  If found → wraps applyStage to send IPC 'sync' messages
+  If not found → display-only mode (no sync, that's OK)
+
+  For monitor N: tx offset = tx - (monitorIndex * monitorWidth)
+  So all monitors show different "windows" into the same virtual canvas.
+
+VIDEO SYNC:
+  Uses separate 'video-sync' IPC channel.
+  Actions: play, pause, seek, timecheck, fit, layout, close
+  Drift correction: if time diff > 0.3s → snap to correct time
+
+IMAGE SYNC:
+  image-viewer.html handles its own IPC sync (not injected like HTML).
+  Uses 'sync' IPC channel same as HTML.
+  Image is centered and spans ALL monitors as one panorama.
+  Escape → sends { action: 'close' } → all monitors close.
+
+PDF:
+  Uses Electron's built-in Chromium PDF viewer.
+  Each monitor shows the same PDF independently.
+  Escape closes all monitors.
+
+AUTO-UPDATE:
+  Uses electron-updater + GitHub Releases.
+  On launch: checks for updates silently.
+  If update found: dialog asks "Download now?" or "Later"
+  If downloaded: dialog asks "Restart Now" or "Later"
+  autoDownload = false (user confirms before download)
+
+IPC CHANNELS USED:
+  'sync'        → HTML pan/zoom sync + image pan/zoom sync
+  'video-sync'  → video playback sync
+  'image-init'  → sent to image-viewer.html with { filePath, monitorIndex, totalMonitors }
+  'video-init'  → sent to video-player.html with { filePath, monitorIndex, totalMonitors }
+  'open-file-dialog' → picker.html → main.js to show file dialog
+  'file-chosen' → main.js → picker.html to show selected filename
+  'use-default' → picker.html → main.js to load index.html demo
+
+----------------------------------------------------------------------
+VIDEO-PLAYER.HTML — HOW IT WORKS
+----------------------------------------------------------------------
+
+DISPLAY MODES (gear icon ⚙ in controls):
+  Fill Screens   → fills all monitors, crops top/bottom if needed
+  Fit Screens    → fits entire video, shows black bars if needed
+  Stretch        → keeps height, stretches width (uses CSS scaleX transform)
+                   Width slider (0-100%) controls how much to stretch
+                   Shift slider moves video up/down
+  Custom Scale   → scale slider (50-200%) + vertical position slider
+  Smart Crop     → fill width, crop slider (0-100%) controls how much height
+
+MONITOR LAYOUT (in settings panel):
+  Columns x Rows dropdowns (1-4 each)
+  Default: auto-set based on monitor count (e.g., 3 monitors → 3 cols x 1 row)
+  Grid preview shows colored squares for each monitor position
+  Layout change is synced to all monitors via 'video-sync' { action: 'layout' }
+
+PLAYBACK CONTROLS:
+  Play/Pause button + Space key
+  Seek bar (click anywhere)
+  Arrow Left/Right = ±10 seconds
+  Volume slider + mute button (only on monitor 0, hidden on others)
+  Controls auto-hide after 3 seconds of no mouse movement
+
+AUDIO:
+  Only monitor 0 (first monitor) plays audio.
+  Other monitors are muted.
+
+KEYBOARD:
+  Space = play/pause
+  ArrowRight = seek +10s
+  ArrowLeft = seek -10s
+  Escape = close all monitors + quit app
+
+SETTINGS PANEL:
+  Shows automatically on monitor 0 after video loads.
+  Click gear icon to toggle.
+  Apply button sends all settings to other monitors.
+
+SYNC LOGIC:
+  Every 5 seconds → sends 'timecheck' to keep monitors in sync.
+  If drift > 0.3s → snaps to correct time.
+  Play/pause/seek always synced immediately.
+
+----------------------------------------------------------------------
+IMAGE-VIEWER.HTML — HOW IT WORKS
+----------------------------------------------------------------------
+
+LAYOUT:
+  Image is centered across ALL monitors combined (as one big panorama).
+  Each monitor shows its slice of the image.
+  If image is smaller than total monitor space → centered with black background.
+  If image is larger → scaled down to fit.
+
+INTERACTION:
+  Click + drag = pan (moves image, synced to all monitors)
+  Scroll wheel = zoom in/out (synced to all monitors)
+  Escape = close all monitors
+
+SYNC:
+  Uses 'sync' IPC channel (same as HTML sync).
+  IPC sends: { tx: globalX, ty, tz }
+  Each monitor converts: localTx = globalTx - (monitorIndex * monitorWidth)
+
+----------------------------------------------------------------------
+PICKER.HTML — FILE CHOOSER UI
+----------------------------------------------------------------------
+Shown at startup when no file argument and no page.html found.
+Two buttons:
+  "Browse File" → opens file dialog with filters:
+    - All Supported (html, htm, mp4, mkv, webm, avi, mov, m4v,
+                     jpg, jpeg, png, gif, bmp, webp, svg, tiff, tif, pdf)
+    - HTML Files
+    - Video Files
+    - Image Files
+    - PDF Files
+    - All Files
+  "Use Demo" → loads index.html (animated city demo)
+
+----------------------------------------------------------------------
+INDEX.HTML — BUILT-IN DEMO
+----------------------------------------------------------------------
+Animated nighttime city scene, 6000px wide.
+Elements:
+  - Sky gradient (dark blue/purple)
+  - 200 twinkling stars
+  - Moon (glowing, centered around x=2800)
+  - Shooting star animation
+  - ✈️ Airplane flying left→right (18s loop)
+  - Plane trail
+  - Buildings spanning full 6000px width with glowing windows
+  - Road with yellow dashed lines
+  - Red car driving left→right (12s loop)
+  - Teal car driving right→left (15s loop)
+  - Flowing river
+  - Green grass with trees
+  - Labels: "Monitor 1", "Monitor 2", "Monitor 3" at x=800, 2800, 4800
+  - Hint text: "This scene continues seamlessly across all your monitors"
+
+Has: tx, ty, tz globals and applyStage() → auto-syncs with IPC injection.
+
+----------------------------------------------------------------------
+INSTALLER.NSH — NSIS UPGRADE DETECTION
+----------------------------------------------------------------------
+Custom NSIS macro that runs before installation:
+1. Checks registry for existing DualScreen installation
+2. If found → asks "DualScreen vX.X.X is already installed. Replace it?"
+3. If Yes → runs old uninstaller silently, then installs new version
+4. If No → aborts installation
+
+This fixes the issue where installing a new version over old one
+would create two entries in Add/Remove Programs.
+
+----------------------------------------------------------------------
+GITHUB SETUP
+----------------------------------------------------------------------
+Repo: https://github.com/sedatkacar56/dualScreen
+Branch: main
+
+How to push changes:
+  git add main.js picker.html package.json image-viewer.html video-player.html index.html
+  git commit -m "your message"
+  git push
+
+How to create a new GitHub Release (after building):
+  $HOME/gh/bin/gh.exe release create v1.0.4 \
+    "dist/DualScreen 1.0.4.exe" \
+    "dist/DualScreen Setup 1.0.4.exe" \
+    --title "DualScreen v1.0.4" \
+    --notes "Added image and PDF support"
+
+gh CLI is at: C:\Users\skacar\gh\bin\gh.exe (manually installed)
+It is authenticated (gh auth login was completed).
+
+----------------------------------------------------------------------
+IMPORTANT BUGS FIXED (history — so don't reintroduce these)
+----------------------------------------------------------------------
+
+1. CODE SIGNING ERROR on enterprise Windows:
+   "Cannot create symbolic link" during build.
+   FIX: signAndEditExecutable: false, signingHashAlgorithms: null in package.json
+
+2. ADMIN PROMPT during NSIS install:
+   FIX: perMachine: false, allowElevation: false in package.json
+
+3. ELECTRON IN WRONG DEPENDENCIES:
+   electron must be in devDependencies, not dependencies.
+   FIX: moved electron to devDependencies.
+
+4. 3+ MONITOR SYNC BROKEN:
+   Original code had `if (monitorIndex === 1)` — only worked for 2 monitors.
+   FIX: Changed to `if (monitorIndex > 0)` with `tx -= monitorWidth * monitorIndex`
+
+5. VIDEO STRETCH NOT WORKING:
+   Setting CSS width on video element didn't change rendered content.
+   FIX: Use CSS `transform: scaleX(ratio)` instead of width property.
+
+6. STRETCH SLIDER STARTING AT 100%:
+   No visual change when opening stretch mode because it was already maxed.
+   FIX: Default value set to 0%.
+
+7. GIT PUSHING WRONG PATH:
+   Files were pushed as dualScreen/OTHERS/Desktop/dual-screen-html/
+   FIX: Removed .git from parent folder, re-initialized git inside project folder.
+
+8. PNG-TO-ICO IMPORT ERROR:
+   Module uses `{ default: pngToIco }` export, not default import.
+   FIX: const { default: pngToIco } = require('png-to-ico');
+
+9. PICKER.HTML USING remote MODULE (deprecated):
+   FIX: Switched to IPC-based file dialog (ipcMain.on('open-file-dialog'...))
+
+10. BLACK GAP ON LEFT MONITOR (video):
+    Video positioning was wrong — left monitor had black on left side.
+    FIX: Proper grid-based positioning using myCol/myRow and offsetX/offsetY.
+
+----------------------------------------------------------------------
+PENDING TASKS (as of 2026-03-26)
+----------------------------------------------------------------------
+- [ ] TEST v1.0.4 on dual monitors:
+        Open app → browse an image → check it spans both monitors correctly
+        Open app → browse a PDF → check it shows on both monitors
+- [ ] If test passes → build: npm run build:all
+- [ ] Push to GitHub: git add + git commit + git push
+- [ ] Create GitHub release v1.0.4 with both .exe files
+- [ ] Update README.md to mention image + PDF support
+
+----------------------------------------------------------------------
+HOW TO MAKE AN HTML FILE SYNC-COMPATIBLE (for custom HTML files)
+----------------------------------------------------------------------
+Your HTML file MUST have these 3 globals + 1 function:
+
+  let tx = 0, ty = 0, tz = 1;  // pan X, pan Y, zoom scale
+
+  function applyStage() {
+    stage.style.transform = `translate(${tx}px,${ty}px) scale(${tz})`;
+    // stage = the element you want to pan/zoom
+  }
+
+The app auto-injects the IPC sync code. You don't add anything else.
+Just make sure tx, ty, tz are global (not inside a function/class).
+
+----------------------------------------------------------------------
+HOW TO ADD A NEW FILE TYPE IN THE FUTURE
+----------------------------------------------------------------------
+1. Add extension to a new array in main.js:
+   const MYTYPE_EXTENSIONS = ['.ext1', '.ext2'];
+   function isMyType(f) { return MYTYPE_EXTENSIONS.some(e => f.toLowerCase().endsWith(e)); }
+
+2. Create mytype-viewer.html with the viewer logic.
+   It should listen for IPC 'mytype-init' event and handle display.
+
+3. Add launchMyTypeOnAllDisplays(filePath) in main.js:
+   - Create BrowserWindow for each display
+   - win.loadFile('mytype-viewer.html')
+   - Send 'mytype-init' with { filePath, monitorIndex, totalMonitors }
+
+4. Add isMyType() check in launchOnAllDisplays().
+
+5. Add extension to drag-drop check in app.whenReady().
+
+6. Add filter to file dialog in ipcMain.on('open-file-dialog').
+
+7. Add 'mytype-viewer.html' to package.json build files array.
+
+8. Bump version number in package.json.
+
+----------------------------------------------------------------------
+BUILD & RELEASE CHECKLIST
+----------------------------------------------------------------------
+1. npm start → test the app works
+2. npm run build:all → creates dist/ folder with:
+     DualScreen X.X.X.exe          (portable, no install needed)
+     DualScreen Setup X.X.X.exe    (NSIS installer)
+3. git add [changed files]
+4. git commit -m "vX.X.X - description"
+5. git push
+6. C:\Users\skacar\gh\bin\gh.exe release create vX.X.X \
+     "dist/DualScreen X.X.X.exe" \
+     "dist/DualScreen Setup X.X.X.exe" \
+     --title "DualScreen vX.X.X" \
+     --notes "What changed"
+
+----------------------------------------------------------------------
+END OF PROJECT MEMORY FILE
+================================================================================
